@@ -15,7 +15,7 @@ CORS(app)
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Load YOLO model (Ensure best.pt is in the same directory)
-model = torch.hub.load("./yolov5", "custom", path="best.pt", source="local")
+model = torch.hub.load("yolov5", "custom", path="best.pt", source="local")
 
 
 
