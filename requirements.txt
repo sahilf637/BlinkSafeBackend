@@ -17,8 +17,6 @@ matplotlib==3.10.1
 seaborn==0.13.2
 SQLAlchemy==2.0.38
 psutil==7.0.0
-bitcoinlib==0.7.2
-python-bitcoinlib==0.12.2
 pycryptodome==3.21.0
 pydantic==2.10.6
 python-multipart==0.0.20
