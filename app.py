@@ -15,7 +15,9 @@ CORS(app)
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Load YOLO model (Ensure best.pt is in the same directory)
-model = torch.hub.load("ultralytics/yolov5", "custom", path="best.pt", force_reload=True, trust_repo=True)
+model = torch.hub.load("./yolov5", "custom", path="best.pt", source="local")
+
+
 
 # Initialize Roboflow Client for Dryness Detection
 CLIENT = InferenceHTTPClient(
