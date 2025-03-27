@@ -7,6 +7,7 @@ from io import BytesIO
 from flask_cors import CORS
 import logging
 import cv2
+import os
 from inference_sdk import InferenceHTTPClient
 
 # Initialize Flask app
@@ -16,8 +17,6 @@ logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %
 
 # Load YOLO model (Ensure best.pt is in the same directory)
 model = torch.hub.load("yolov5", "custom", path="best.pt", source="local")
-
-
 
 # Initialize Roboflow Client for Dryness Detection
 CLIENT = InferenceHTTPClient(
@@ -99,6 +98,13 @@ def predict():
         right_dryness = right_dryness_result["predictions"][0]["confidence"] if right_dryness_result["predictions"] else 0
 
         avg_dryness = round(((left_dryness + right_dryness) / 2) * 100, 2)
+
+        # Remove saved eye images
+        for file in ["left_eye.jpg", "right_eye.jpg"]:
+            try:
+                os.remove(file)
+            except FileNotFoundError:
+                logging.warning(f"File {file} not found for deletion.")
 
         return jsonify({
             "average_redness": avg_redness,
