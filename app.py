@@ -1,5 +1,4 @@
 from flask import Flask, request, jsonify
-import torch
 import base64
 import numpy as np
 from PIL import Image
@@ -15,10 +14,7 @@ app = Flask(__name__)
 CORS(app)
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Load YOLO model (Ensure best.pt is in the same directory)
-model = torch.hub.load("yolov5", "custom", path="best.pt", source="local")
-
-# Initialize Roboflow Client for Dryness Detection
+# Initialize Roboflow Client for Redness and Dryness Detection
 CLIENT = InferenceHTTPClient(
     api_url="https://detect.roboflow.com",
     api_key="B2qR7Mx5VzokQdgQU5xQ"
@@ -74,19 +70,19 @@ def predict():
         if left_eye is None or right_eye is None:
             return jsonify({"error": "Both eyes not detected"}), 400
 
-        # Convert eyes to PIL format for YOLO and Roboflow
+        # Convert eyes to PIL format
         left_pil = Image.fromarray(cv2.cvtColor(left_eye, cv2.COLOR_BGR2RGB))
         right_pil = Image.fromarray(cv2.cvtColor(right_eye, cv2.COLOR_BGR2RGB))
         
         left_pil.save("left_eye.jpg")
         right_pil.save("right_eye.jpg")
         
-        # Run YOLO inference for Redness Detection
-        left_results = model(left_pil)
-        right_results = model(right_pil)
-
-        left_redness = max([row["confidence"] for _, row in left_results.pandas().xyxy[0].iterrows()], default=0)
-        right_redness = max([row["confidence"] for _, row in right_results.pandas().xyxy[0].iterrows()], default=0)
+        # Run Roboflow API for Redness Detection
+        left_redness_result = CLIENT.infer("left_eye.jpg", model_id="red-eye-bj8nk/1")
+        right_redness_result = CLIENT.infer("right_eye.jpg", model_id="red-eye-bj8nk/1")
+        
+        left_redness = left_redness_result["predictions"][0]["confidence"] if left_redness_result["predictions"] else 0
+        right_redness = right_redness_result["predictions"][0]["confidence"] if right_redness_result["predictions"] else 0
 
         avg_redness = round(((left_redness + right_redness) / 2) * 100, 2)
 
