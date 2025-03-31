@@ -1,7 +1,7 @@
 Flask==3.1.0
 flask-cors==5.0.1
 numpy==1.26.4
-opencv-python-headless==4.10.0.84  # Headless version (no GUI dependencies)
+opencv-python-headless==4.10.0.84
 inference-sdk==0.44.1
 pillow==10.4.0
-requests==2.31.0
+requests>=2.32.0  # Changed from 2.31.0 to meet inference-sdk's requirement
