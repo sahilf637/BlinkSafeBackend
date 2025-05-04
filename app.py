@@ -20,16 +20,29 @@ CLIENT = InferenceHTTPClient(
     api_key="B2qR7Mx5VzokQdgQU5xQ"
 )
 
-# Load Haar Cascade for eye detection
-face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
-eye_cascade = cv2.CascadeClassifier('haarcascade_eye.xml')
+# Load Haar Cascades from OpenCV’s built-in data
+face_cascade = cv2.CascadeClassifier(
+    cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+)
+eye_cascade = cv2.CascadeClassifier(
+    cv2.data.haarcascades + "haarcascade_eye.xml"
+)
 
 def decode_base64_image(encoded_string):
-    """Decode base64 string into OpenCV image."""
-    img_data = base64.b64decode(encoded_string)
+    """Decode base64 string (with or without data URL header) into an OpenCV image."""
+    # Strip off any header (e.g. "data:image/jpeg;base64,")
+    if "," in encoded_string:
+        encoded_string = encoded_string.split(",", 1)[1]
+    try:
+        img_data = base64.b64decode(encoded_string)
+    except Exception as e:
+        raise ValueError(f"Base64 decoding failed: {e}")
     np_arr = np.frombuffer(img_data, np.uint8)
     img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError("OpenCV could not decode the image buffer")
     return img
+
 
 def extract_eyes(image):
     """Detects and extracts both eyes from a given image."""
@@ -42,65 +55,60 @@ def extract_eyes(image):
     face_roi_color = image[y:y+h, x:x+w]
     face_roi_gray = gray[y:y+h, x:x+w]
 
-    # Detect eyes
     eyes = eye_cascade.detectMultiScale(face_roi_gray)
     if len(eyes) < 2:
         return None, None
 
     eye_images = []
-    for (ex, ey, ew, eh) in eyes[:2]:  # Get first two detected eyes
+    for (ex, ey, ew, eh) in eyes[:2]:  # First two detected eyes
         eye_crop = face_roi_color[ey:ey+eh, ex:ex+ew]
-        eye_resized = cv2.resize(eye_crop, (224, 224))  # Resize for ML model
+        eye_resized = cv2.resize(eye_crop, (224, 224))
         eye_images.append(eye_resized)
 
     return eye_images[0], eye_images[1]
 
 @app.route("/predict", methods=["POST"])
 def predict():
-    logging.debug("Received request for eye redness and dryness detection")
+    logging.debug("🔍 Received request for eye redness and dryness detection")
     try:
-        data = request.get_json()
+        data = request.get_json(force=True)
+        logging.debug(f"Payload keys: {list(data.keys())}")
         if "image" not in data:
-            return jsonify({"error": "No image data provided"}), 400
+            return jsonify({"error": "No image field in JSON"}), 400
 
-        # Decode Base64 Image
         image = decode_base64_image(data["image"])
+        logging.debug("✅ Decoded image, shape: %s", image.shape)
+
         left_eye, right_eye = extract_eyes(image)
-
         if left_eye is None or right_eye is None:
-            return jsonify({"error": "Both eyes not detected"}), 400
+            return jsonify({"error": "Could not detect two eyes"}), 400
+        logging.debug("✅ Extracted both eyes")
 
-        # Convert eyes to PIL format
+        # Convert to PIL and save
         left_pil = Image.fromarray(cv2.cvtColor(left_eye, cv2.COLOR_BGR2RGB))
         right_pil = Image.fromarray(cv2.cvtColor(right_eye, cv2.COLOR_BGR2RGB))
-        
         left_pil.save("left_eye.jpg")
         right_pil.save("right_eye.jpg")
-        
-        # Run Roboflow API for Redness Detection
-        left_redness_result = CLIENT.infer("left_eye.jpg", model_id="red-eye-bj8nk/1")
-        right_redness_result = CLIENT.infer("right_eye.jpg", model_id="red-eye-bj8nk/1")
-        
-        left_redness = left_redness_result["predictions"][0]["confidence"] if left_redness_result["predictions"] else 0
-        right_redness = right_redness_result["predictions"][0]["confidence"] if right_redness_result["predictions"] else 0
+        logging.debug("✅ Saved eye crops to disk")
 
-        avg_redness = round(((left_redness + right_redness) / 2) * 100, 2)
+        # Redness Detection
+        left_red = CLIENT.infer("left_eye.jpg", model_id="red-eye-bj8nk/1")
+        right_red = CLIENT.infer("right_eye.jpg", model_id="red-eye-bj8nk/1")
+        lr = left_red["predictions"][0]["confidence"] if left_red["predictions"] else 0
+        rr = right_red["predictions"][0]["confidence"] if right_red["predictions"] else 0
+        avg_redness = round(((lr + rr) / 2) * 100, 2)
 
-        # Run Roboflow API for Dryness Detection
-        left_dryness_result = CLIENT.infer("left_eye.jpg", model_id="dry-eye-disease-l9jt2/4")
-        right_dryness_result = CLIENT.infer("right_eye.jpg", model_id="dry-eye-disease-l9jt2/4")
-        
-        left_dryness = left_dryness_result["predictions"][0]["confidence"] if left_dryness_result["predictions"] else 0
-        right_dryness = right_dryness_result["predictions"][0]["confidence"] if right_dryness_result["predictions"] else 0
+        # Dryness Detection
+        left_dry = CLIENT.infer("left_eye.jpg", model_id="dry-eye-disease-l9jt2/4")
+        right_dry = CLIENT.infer("right_eye.jpg", model_id="dry-eye-disease-l9jt2/4")
+        ld = left_dry["predictions"][0]["confidence"] if left_dry["predictions"] else 0
+        rd = right_dry["predictions"][0]["confidence"] if right_dry["predictions"] else 0
+        avg_dryness = round(((ld + rd) / 2) * 100, 2)
 
-        avg_dryness = round(((left_dryness + right_dryness) / 2) * 100, 2)
-
-        # Remove saved eye images
-        for file in ["left_eye.jpg", "right_eye.jpg"]:
-            try:
-                os.remove(file)
-            except FileNotFoundError:
-                logging.warning(f"File {file} not found for deletion.")
+        # Cleanup
+        for f in ("left_eye.jpg", "right_eye.jpg"):
+            try: os.remove(f)
+            except FileNotFoundError: logging.warning(f"{f} not found for deletion.")
 
         return jsonify({
             "average_redness": avg_redness,
@@ -108,6 +116,7 @@ def predict():
         })
 
     except Exception as e:
+        logging.exception("❌ Error in /predict")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
